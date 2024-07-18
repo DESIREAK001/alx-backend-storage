@@ -1,64 +1,38 @@
 #!/usr/bin/env python3
-""" web.py """
-import requests
-from typing import Callable, Any
-from functools import wraps
+'''A module with tools for request caching and tracking.
+'''
 import redis
+import requests
+from functools import wraps
+from typing import Callable
 
 
-def count_calls(method: Callable) -> Callable:
-    """
-    Counts the number of times a function is called.
+redis_store = redis.Redis()
+'''The module-level Redis instance.
+'''
 
-    Parameters:
-        fn: The function to be called.
 
-    Returns:
-        The decorated function.
-    """
-
+def data_cacher(method: Callable) -> Callable:
+    '''Caches the output of fetched data.
+    '''
     @wraps(method)
-    def wrapper(url: str) -> str:
-        """
-        Increments the number of times the decorated function is called.
-
-        Parameters:
-            self: The instance of the Cache class.
-            *args: The arguments to be passed to the decorated function.
-            **kwargs: The keyword arguments to be passed to the decorated
-
-        Returns:
-            The return value of the decorated function.
-        """
-        clinet = redis.Redis()
-
-        count_key = "count:{url}".format(url=url)
-        result_key = "result:{url}".format(url=url)
-        clinet.incr(count_key)
-
-        result = clinet.get(result_key)
+    def invoker(url) -> str:
+        '''The wrapper function for caching the output.
+        '''
+        redis_store.incr(f'count:{url}')
+        result = redis_store.get(f'result:{url}')
         if result:
-            return result.decode("utf-8")
+            return result.decode('utf-8')
+        result = method(url)
+        redis_store.set(f'count:{url}', 0)
+        redis_store.setex(f'result:{url}', 10, result)
+        return result
+    return invoker
 
-        return_value = method(url)
-        clinet.setex(result_key, 10, return_value)
 
-        return return_value
-    return wrapper
-
-
-@count_calls
+@data_cacher
 def get_page(url: str) -> str:
-    """
-    Retrieves the content of a web page.
-
-    Parameters:
-        url: The URL of the web page to retrieve.
-
-    Returns:
-        The content of the web page.
-    """
-    try:
-        return requests.get(url).text
-    except requests.RequestException:
-        return str(None)
+    '''Returns the content of a URL after caching the request's response,
+    and tracking the request.
+    '''
+    return requests.get(url).text
